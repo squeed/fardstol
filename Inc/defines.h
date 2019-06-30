@@ -158,3 +158,9 @@ typedef struct {
   uint16_t temp;
   uint16_t l_rx2;
 } adc_buf_t;
+
+
+void setScopeChannel(uint8_t ch, int16_t val);
+void consoleScope();
+void consoleLog(char *message);
+

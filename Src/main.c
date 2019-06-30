@@ -23,6 +23,8 @@
 #include "defines.h"
 #include "setup.h"
 #include "config.h"
+#include <math.h>
+#include <stdlib.h>
 //#include "hd44780.h"
 
 void SystemClock_Config(void);
@@ -39,6 +41,13 @@ extern UART_HandleTypeDef huart2;
 int cmd1;  // normalized input values. -1000 to 1000
 int cmd2;
 int cmd3;
+int adc1;
+int adc2;
+
+#ifdef CONTROL_ADC
+float adc_scale1 = 2000.0 / (ADC1_MAX - ADC1_MIN);
+float adc_scale2 = 2000.0 / (ADC2_MAX - ADC2_MIN);
+#endif
 
 typedef struct{
    int16_t steer;
@@ -77,7 +86,7 @@ int milli_vel_error_sum = 0;
 
 
 void poweroff() {
-    if (abs(speed) < 20) {
+    if (abs(speed) < 400) {
         buzzerPattern = 0;
         enable = 0;
         for (int i = 0; i < 8; i++) {
@@ -137,7 +146,6 @@ int main(void) {
 
   int lastSpeedL = 0, lastSpeedR = 0;
   int speedL = 0, speedR = 0;
-  float direction = 1;
 
   #ifdef CONTROL_PPM
     PPM_Init();
@@ -178,56 +186,76 @@ int main(void) {
   float board_temp_adc_filtered = (float)adc_buffer.temp;
   float board_temp_deg_c;
 
-  enable = 1;  // enable motors
+  enable = 0;  // enable motors
 
   while(1) {
     HAL_Delay(DELAY_IN_MAIN_LOOP); //delay in ms
 
-    #ifdef CONTROL_NUNCHUCK
-      Nunchuck_Read();
-      cmd1 = CLAMP((nunchuck_data[0] - 127) * 8, -1000, 1000); // x - axis. Nunchuck joystick readings range 30 - 230
-      cmd2 = CLAMP((nunchuck_data[1] - 128) * 8, -1000, 1000); // y - axis
-
-      button1 = (uint8_t)nunchuck_data[5] & 1;
-      button2 = (uint8_t)(nunchuck_data[5] >> 1) & 1;
-    #endif
-
-    #ifdef CONTROL_PPM
-      cmd1 = CLAMP((ppm_captured_value[0] - 500) * 2, -1000, 1000);
-      cmd2 = CLAMP((ppm_captured_value[1] - 500) * 2, -1000, 1000);
-      button1 = ppm_captured_value[5] > 500;
-      float scale = ppm_captured_value[2] / 1000.0f;
-    #endif
-
     #ifdef CONTROL_ADC
       // ADC values range: 0-4095, see ADC-calibration in config.h
-      cmd1 = CLAMP(adc_buffer.l_tx2 - ADC1_MIN, 0, ADC1_MAX) / (ADC1_MAX / 1000.0f);  // ADC1
-      cmd2 = CLAMP(adc_buffer.l_rx2 - ADC2_MIN, 0, ADC2_MAX) / (ADC2_MAX / 1000.0f);  // ADC2
-
-      // use ADCs as button inputs:
-      button1 = (uint8_t)(adc_buffer.l_tx2 > 2000);  // ADC1
-      button2 = (uint8_t)(adc_buffer.l_rx2 > 2000);  // ADC2
+      //cmd1 = CLAMP(adc_buffer.l_tx2 - ADC1_MIN, 0, ADC1_MAX) / (ADC1_MAX / 1000.0f);  // ADC1
+      //cmd2 = CLAMP(adc_buffer.l_rx2 - ADC2_MIN, 0, ADC2_MAX) / (ADC2_MAX / 1000.0f);  // ADC2
+      
+      //cmd1 = steer
+      //cmd2 = speed
+      adc1 = adc1 * (1.0 - FILTER) + (adc_buffer.l_tx2 * FILTER);
+      adc2 = adc2 * (1.0 - FILTER) + (adc_buffer.l_rx2 * FILTER);
+      cmd1 = (CLAMP(adc1, ADC1_MIN, ADC1_MAX) - ADC1_ZERO) * adc_scale1;
+      cmd2 = (CLAMP(adc2, ADC2_MIN, ADC2_MAX) - ADC2_ZERO) * adc_scale2;
+      
+      // cmd2 is magnitude of vector, but go backwards
+      cmd2 = CLAMP((cmd2 > 0 ? 1 : -1) * (sqrt((cmd1 * cmd1) + (cmd2 * cmd2))), -1000, 1000);
 
       timeout = 0;
     #endif
 
-    #ifdef CONTROL_SERIAL_USART2
-      cmd1 = CLAMP((int16_t)command.steer, -1000, 1000);
-      cmd2 = CLAMP((int16_t)command.speed, -1000, 1000);
-
-      timeout = 0;
-    #endif
-
+    if (abs(cmd2) < 100) {
+        cmd2 = 0;
+    }
 
     // ####### LOW-PASS FILTER #######
     steer = steer * (1.0 - FILTER) + cmd1 * FILTER;
     speed = speed * (1.0 - FILTER) + cmd2 * FILTER;
 
+    if (speed > 0) {
+        speed = 0;
+    }
+
 
     // ####### MIXER #######
-    speedR = CLAMP(speed * SPEED_COEFFICIENT -  steer * STEER_COEFFICIENT, -1000, 1000);
-    speedL = CLAMP(speed * SPEED_COEFFICIENT +  steer * STEER_COEFFICIENT, -1000, 1000);
+    //speedR = CLAMP(speed * SPEED_COEFFICIENT -  steer * STEER_COEFFICIENT, -1000, 1000);
+    //speedL = CLAMP(speed * SPEED_COEFFICIENT +  steer * STEER_COEFFICIENT, -1000, 1000);
+    // can't think of a cleverer way to do this
+    
+    // steer_factor is 
+    int steer_factor = (abs(steer) * abs(speed) / 1000);
+    if (steer >= 0) {
+        // left full speed, right reduced
+        speedL = CLAMP(speed, -1000, 1000);
+        if (speed >= 0) {
+            speedR = CLAMP(speed - steer_factor , -1000, 1000);
+        } else {
+            speedR = CLAMP(speed + steer_factor, -1000, 1000);
+        }
+    } else { // steer < 0, right full speed
+        speedR = CLAMP(speed, -1000, 1000);
+        if (speed >= 0) {
+            speedL = CLAMP(speed - steer_factor, -1000, 1000);
+        } else {
+            speedL = CLAMP(speed + steer_factor, -1000, 1000);
+        }
+    } 
 
+    // enable field weakening
+    /*
+    if (abs(speed) > 700) {
+        weakl = CLAMP(abs(speedL) - 600, 0, 300);
+        weakr = CLAMP(abs(speedR) - 600, 0, 300);
+    } else {
+        weakl = 0;
+        weakr = 0;
+    }
+    */
 
     #ifdef ADDITIONAL_CODE
       ADDITIONAL_CODE;
@@ -262,26 +290,31 @@ int main(void) {
         setScopeChannel(0, (int)adc_buffer.l_tx2);  // 1: ADC1
         setScopeChannel(1, (int)adc_buffer.l_rx2);  // 2: ADC2
       #endif
-      setScopeChannel(2, (int)speedR);  // 3: output speed: 0-1000
-      setScopeChannel(3, (int)speedL);  // 4: output speed: 0-1000
-      setScopeChannel(4, (int)adc_buffer.batt1);  // 5: for battery voltage calibration
-      setScopeChannel(5, (int)(batteryVoltage * 100.0f));  // 6: for verifying battery voltage calibration
-      setScopeChannel(6, (int)board_temp_adc_filtered);  // 7: for board temperature calibration
-      setScopeChannel(7, (int)board_temp_deg_c);  // 8: for verifying board temperature calibration
+      setScopeChannel(2, (int)cmd1);  // 3: output speed: 0-1000
+      setScopeChannel(3, (int)cmd2);  // 4: output speed: 0-1000
+      setScopeChannel(4, (int)speedR);  // 3: output speed: 0-1000
+      setScopeChannel(5, (int)speedL);  // 4: output speed: 0-1000
+      //setScopeChannel(4, (int)adc_buffer.batt1);  // 5: for battery voltage calibration
+      //setScopeChannel(5, (int)(batteryVoltage * 100.0f));  // 6: for verifying battery voltage calibration
+      setScopeChannel(6, (int)weakr);
+      setScopeChannel(7, (int)weakl);
+     // setScopeChannel(6, (int)board_temp_adc_filtered);  // 7: for board temperature calibration
+    //  setScopeChannel(7, (int)board_temp_deg_c);  // 8: for verifying board temperature calibration
       consoleScope();
     }
 
 
     // ####### POWEROFF BY POWER-BUTTON #######
-    if (HAL_GPIO_ReadPin(BUTTON_PORT, BUTTON_PIN) && weakr == 0 && weakl == 0) {
+    if (HAL_GPIO_ReadPin(BUTTON_PORT, BUTTON_PIN)){
       enable = 0;
+      consoleLog("button push, byebye");
       while (HAL_GPIO_ReadPin(BUTTON_PORT, BUTTON_PIN)) {}
       poweroff();
     }
 
-
     // ####### BEEP AND EMERGENCY POWEROFF #######
     if ((TEMP_POWEROFF_ENABLE && board_temp_deg_c >= TEMP_POWEROFF && abs(speed) < 20) || (batteryVoltage < ((float)BAT_LOW_DEAD * (float)BAT_NUMBER_OF_CELLS) && abs(speed) < 20)) {  // poweroff before mainboard burns OR low bat 3
+      consoleLog("low voltage, sleepy time\n");
       poweroff();
     } else if (TEMP_WARNING_ENABLE && board_temp_deg_c >= TEMP_WARNING) {  // beep if mainboard gets hot
       buzzerFreq = 4;
