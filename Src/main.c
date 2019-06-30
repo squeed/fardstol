@@ -45,8 +45,11 @@ int adc1;
 int adc2;
 
 #ifdef CONTROL_ADC
-float adc_scale1 = 2000.0 / (ADC1_MAX - ADC1_MIN);
-float adc_scale2 = 2000.0 / (ADC2_MAX - ADC2_MIN);
+// Center isn't in the middle
+float adc1_scale_neg = 1000.0 / (ADC1_ZERO_L - ADC1_MIN);
+float adc1_scale_pos = 1000.0 / (ADC1_MAX - ADC1_ZERO_H);
+float adc2_scale_neg = 1000.0 / (ADC2_ZERO_L - ADC2_MIN);
+float adc2_scale_pos = 1000.0 / (ADC2_MAX - ADC2_ZERO_H);
 #endif
 
 typedef struct{
@@ -186,7 +189,7 @@ int main(void) {
   float board_temp_adc_filtered = (float)adc_buffer.temp;
   float board_temp_deg_c;
 
-  enable = 0;  // enable motors
+  enable = 1;  // enable motors
 
   while(1) {
     HAL_Delay(DELAY_IN_MAIN_LOOP); //delay in ms
@@ -196,15 +199,35 @@ int main(void) {
       //cmd1 = CLAMP(adc_buffer.l_tx2 - ADC1_MIN, 0, ADC1_MAX) / (ADC1_MAX / 1000.0f);  // ADC1
       //cmd2 = CLAMP(adc_buffer.l_rx2 - ADC2_MIN, 0, ADC2_MAX) / (ADC2_MAX / 1000.0f);  // ADC2
       
+     // adc1 = adc_buffer.l_tx2
+     // adc2 = adc_buffer.l_rx2
       //cmd1 = steer
       //cmd2 = speed
-      adc1 = adc1 * (1.0 - FILTER) + (adc_buffer.l_tx2 * FILTER);
-      adc2 = adc2 * (1.0 - FILTER) + (adc_buffer.l_rx2 * FILTER);
-      cmd1 = (CLAMP(adc1, ADC1_MIN, ADC1_MAX) - ADC1_ZERO) * adc_scale1;
-      cmd2 = (CLAMP(adc2, ADC2_MIN, ADC2_MAX) - ADC2_ZERO) * adc_scale2;
+      adc1 = CLAMP(adc_buffer.l_tx2, ADC1_MIN, ADC1_MAX);
+      if (adc1 > ADC1_ZERO_H) {
+        cmd1 = (adc1 - ADC1_ZERO_H) * adc1_scale_pos;
+      } else if (adc1 < ADC1_ZERO_L) {
+        cmd1 = (adc1 - ADC1_ZERO_L) * adc1_scale_neg; 
+      } else {
+        cmd1 = 0;
+      }
+      // i swapped the wiper
+      cmd1 *= -1;
+
+
+      adc2 = CLAMP(adc_buffer.l_rx2, ADC2_MIN, ADC2_MAX);
+      if (adc2 > ADC2_ZERO_H) {
+        cmd2 = (adc2 - ADC2_ZERO_H) * adc2_scale_pos;
+      } else if (adc2 < ADC2_ZERO_L) {
+        cmd2 = (adc2 - ADC2_ZERO_L) * adc2_scale_neg; 
+      } else {
+        cmd2 = 0;
+      }
+      //cmd1 = (CLAMP(adc1, ADC1_MIN, ADC1_MAX) - ADC1_ZERO) * adc_scale1;
+      //cmd2 = (CLAMP(adc2, ADC2_MIN, ADC2_MAX) - ADC2_ZERO) * adc_scale2;
       
       // cmd2 is magnitude of vector, but go backwards
-      cmd2 = CLAMP((cmd2 > 0 ? 1 : -1) * (sqrt((cmd1 * cmd1) + (cmd2 * cmd2))), -1000, 1000);
+      cmd2 = CLAMP((cmd2 > 0 ? 1 : -1) * (sqrt((cmd1 * cmd1) + (cmd2 * cmd2))), -1000, 400);
 
       timeout = 0;
     #endif
@@ -214,12 +237,8 @@ int main(void) {
     }
 
     // ####### LOW-PASS FILTER #######
-    steer = steer * (1.0 - FILTER) + cmd1 * FILTER;
-    speed = speed * (1.0 - FILTER) + cmd2 * FILTER;
-
-    if (speed > 0) {
-        speed = 0;
-    }
+    steer = steer * (1.0 - FILTER) + (cmd1 * FILTER);
+    speed = speed * (1.0 - FILTER) + (cmd2 * FILTER);
 
 
     // ####### MIXER #######
