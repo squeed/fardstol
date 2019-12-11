@@ -311,10 +311,10 @@ int main(void) {
       #endif
       setScopeChannel(2, (int)cmd1);  // 3: output speed: 0-1000
       setScopeChannel(3, (int)cmd2);  // 4: output speed: 0-1000
-      setScopeChannel(4, (int)speedR);  // 3: output speed: 0-1000
-      setScopeChannel(5, (int)speedL);  // 4: output speed: 0-1000
-      //setScopeChannel(4, (int)adc_buffer.batt1);  // 5: for battery voltage calibration
-      //setScopeChannel(5, (int)(batteryVoltage * 100.0f));  // 6: for verifying battery voltage calibration
+      //setScopeChannel(4, (int)speedR);  // 3: output speed: 0-1000
+      //setScopeChannel(5, (int)speedL);  // 4: output speed: 0-1000
+      setScopeChannel(4, (int)adc_buffer.batt1);  // 5: for battery voltage calibration
+      setScopeChannel(5, (int)(batteryVoltage * 100.0f));  // 6: for verifying battery voltage calibration
       setScopeChannel(6, (int)weakr);
       setScopeChannel(7, (int)weakl);
      // setScopeChannel(6, (int)board_temp_adc_filtered);  // 7: for board temperature calibration
@@ -338,6 +338,7 @@ int main(void) {
     } else if (TEMP_WARNING_ENABLE && board_temp_deg_c >= TEMP_WARNING) {  // beep if mainboard gets hot
       buzzerFreq = 4;
       buzzerPattern = 1;
+      consoleLog("temp warning\n");
     } else if (batteryVoltage < ((float)BAT_LOW_LVL1 * (float)BAT_NUMBER_OF_CELLS) && batteryVoltage > ((float)BAT_LOW_LVL2 * (float)BAT_NUMBER_OF_CELLS) && BAT_LOW_LVL1_ENABLE) {  // low bat 1: slow beep
       buzzerFreq = 5;
       buzzerPattern = 42;

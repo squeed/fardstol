@@ -22,10 +22,10 @@
 #define BAT_LOW_LVL1_ENABLE     0         // to beep or not to beep, 1 or 0
 #define BAT_LOW_LVL1            3.6       // gently beeps at this voltage level. [V/cell]
 #define BAT_LOW_LVL2_ENABLE     1         // to beep or not to beep, 1 or 0
-#define BAT_LOW_LVL2            3.5       // your battery is almost empty. Charge now! [V/cell]
-#define BAT_LOW_DEAD            3.37      // undervoltage poweroff. (while not driving) [V/cell]
+#define BAT_LOW_LVL2            3.0       // your battery is almost empty. Charge now! [V/cell]
+#define BAT_LOW_DEAD            2.6      // undervoltage poweroff. (while not driving) [V/cell]
 
-#define DC_CUR_LIMIT     15         // DC current limit in amps per motor. so 15 means it will draw 30A out of your battery. it does not disable motors, it is a soft current limit.
+#define DC_CUR_LIMIT     10         // DC current limit in amps per motor. so 15 means it will draw 30A out of your battery. it does not disable motors, it is a soft current limit.
 
 // Board overheat detection: the sensor is inside the STM/GD chip. it is very inaccurate without calibration (up to 45°C). so only enable this funcion after calibration! let your board cool down. see <How to calibrate>. get the real temp of the chip by thermo cam or another temp-sensor taped on top of the chip and write it to TEMP_CAL_LOW_DEG_C. write debug value 8 to TEMP_CAL_LOW_ADC. drive around to warm up the board. it should be at least 20°C warmer. repeat it for the HIGH-values. enable warning and/or poweroff and make and flash firmware.
 #define TEMP_CAL_LOW_ADC        1655      // temperature 1: ADC value
